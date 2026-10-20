@@ -70,6 +70,8 @@ def _fact_for_object(item: Dict[str, Any], corpus: Dict[str, Any]) -> Optional[D
 
 def _generic_tip(item: Dict[str, Any], corpus: Dict[str, Any]) -> str:
     category = str(item.get("category") or "")
+    if category == "sun":
+        return "太阳仅作位置参考，请勿直视太阳或用未配备合格太阳滤镜的光学设备观测。"
     object_type = str(item.get("object_type") or "")
     category_tip = corpus.get("category_guidance", {}).get(category, {}).get("default_tip")
     type_tip = corpus.get("object_type_guidance", {}).get(object_type)
@@ -119,8 +121,8 @@ def _object_insight(item: Dict[str, Any], corpus: Dict[str, Any]) -> Dict[str, A
         "magnitude": item.get("magnitude"),
         "fact": fact.get("fact") or "",
         "viewing_tip": fact.get("tip") or _generic_tip(item, corpus),
-        "altitude_note": _altitude_note(item, corpus),
-        "magnitude_note": _magnitude_note(item, corpus) if category != "planet" else "",
+        "altitude_note": _altitude_note(item, corpus) if category != "sun" else "",
+        "magnitude_note": _magnitude_note(item, corpus) if category not in ("planet", "moon", "sun") else "",
     }
 
 
@@ -129,9 +131,11 @@ def build_reasoning_context(chart: Dict[str, Any], corpus_path: str = str(DEFAUL
     objects = list(chart.get("objects") or [])
     counts = chart.get("counts") or {}
     observer = chart.get("observer") or {}
-    top_objects = objects[:5]
-    high_objects = [item for item in objects if float(item.get("altitude_deg") or 0.0) >= 55.0]
-    low_objects = [item for item in objects if 0.0 <= float(item.get("altitude_deg") or 0.0) < 25.0]
+    # The Sun belongs on the chart, but must never become a naked-eye find target.
+    observing_objects = [item for item in objects if item.get("category") != "sun"]
+    top_objects = observing_objects[:5]
+    high_objects = [item for item in observing_objects if float(item.get("altitude_deg") or 0.0) >= 55.0]
+    low_objects = [item for item in observing_objects if 0.0 <= float(item.get("altitude_deg") or 0.0) < 25.0]
     planets = [item for item in objects if item.get("category") == "planet"]
     deep_sky = [item for item in objects if item.get("category") == "deep_sky"]
 
@@ -159,7 +163,8 @@ def build_reasoning_context(chart: Dict[str, Any], corpus_path: str = str(DEFAUL
 
     bullets: List[str] = []
     bullets.append(
-        f"类别分布：亮星 {counts.get('star', 0)} 个，行星 {counts.get('planet', 0)} 个，深空目标 {counts.get('deep_sky', 0)} 个。"
+        f"类别分布：恒星 {counts.get('star', 0)} 个，行星 {counts.get('planet', 0)} 个，"
+        f"月亮 {counts.get('moon', 0)} 个，太阳 {counts.get('sun', 0)} 个，深空目标 {counts.get('deep_sky', 0)} 个。"
     )
     if high_objects:
         bullets.append(f"有 {len(high_objects)} 个目标高度角超过55度，可作为更稳定的首选观测对象。")

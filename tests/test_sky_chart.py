@@ -21,7 +21,7 @@ def deep(index: int, magnitude: float = 8.0) -> dict:
 def positioned(monkeypatch):
     monkeypatch.setattr(sky, "_bulk_altaz_from_stars", lambda rows, *args:
                         [(90.0, row.get("test_altitude", 60.0)) for row in rows])
-    monkeypatch.setattr(sky, "planet_positions", lambda *args: [])
+    monkeypatch.setattr(sky, "solar_system_positions", lambda *args: [])
 
 
 def test_bright_low_star_survives_expanding_magnitude_limit(monkeypatch, positioned):
@@ -37,7 +37,7 @@ def test_chart_reaches_150_and_reserves_each_category(monkeypatch, positioned):
     monkeypatch.setattr(sky, "get_candidate_stars_for_sky", lambda **kwargs:
                         [star(i) for i in range(250)])
     monkeypatch.setattr(sky, "get_deep_sky_objects", lambda: [deep(i) for i in range(1, 111)])
-    monkeypatch.setattr(sky, "planet_positions", lambda *args:
+    monkeypatch.setattr(sky, "solar_system_positions", lambda *args:
                         [{"name": f"Planet {i}", "azimuth_deg": 90., "altitude_deg": 60.} for i in range(5)])
     chart = sky.build_sky_chart(31.3, 120.6, star_max_mag=6, total_limit=150)
     assert len(chart["objects"]) == 150

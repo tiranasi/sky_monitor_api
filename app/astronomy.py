@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import logging
 import os
 import warnings
 from datetime import datetime, timezone
@@ -22,6 +23,11 @@ PathLike = Union[str, Path]
 _SKYFIELD_EPHEMERIS = None
 _SKYFIELD_TIMESCALE = None
 MAX_CHART_OBJECTS = 150
+logger = logging.getLogger(__name__)
+
+
+class SolarSystemUnavailableError(RuntimeError):
+    """The requested solar-system calculation could not be completed."""
 
 
 def _prepare_astropy_runtime() -> None:
@@ -324,44 +330,79 @@ def planet_positions(
     lon: float,
     observed_at: Optional[DateTimeLike] = None,
 ) -> List[Dict[str, Any]]:
+    # Preserve the existing /facts planet-only response fields.
+    return [
+        {key: item[key] for key in ("name", "azimuth_deg", "altitude_deg", "distance_au")}
+        for item in _solar_system_positions(lat, lon, observed_at, include_luminaries=False)
+    ]
+
+
+def solar_system_positions(
+    lat: float,
+    lon: float,
+    observed_at: Optional[DateTimeLike] = None,
+) -> List[Dict[str, Any]]:
+    return _solar_system_positions(lat, lon, observed_at, include_luminaries=True)
+
+
+def _solar_system_positions(
+    lat: float,
+    lon: float,
+    observed_at: Optional[DateTimeLike],
+    include_luminaries: bool,
+) -> List[Dict[str, Any]]:
+    latitude, longitude = validate_location(lat, lon)
+    moment = ensure_utc(observed_at)
     ephemeris_path = DATA_DIR / "de421.bsp"
     if not ephemeris_path.exists():
-        return []
+        logger.error("Solar-system ephemeris is missing: %s", ephemeris_path)
+        raise FileNotFoundError("Solar-system ephemeris unavailable; install data/de421.bsp")
 
     try:
         from skyfield.api import load, load_file, wgs84
+        from skyfield.errors import EphemerisRangeError
+    except ImportError as exc:
+        logger.exception("Skyfield is unavailable")
+        raise SolarSystemUnavailableError("Solar-system calculation unavailable") from exc
 
+    try:
         global _SKYFIELD_EPHEMERIS, _SKYFIELD_TIMESCALE
-        moment = ensure_utc(observed_at)
         if _SKYFIELD_TIMESCALE is None:
             _SKYFIELD_TIMESCALE = load.timescale()
         if _SKYFIELD_EPHEMERIS is None:
             _SKYFIELD_EPHEMERIS = load_file(str(ephemeris_path))
         skyfield_time = _SKYFIELD_TIMESCALE.from_datetime(moment)
         ephemeris = _SKYFIELD_EPHEMERIS
-        observer = ephemeris["earth"] + wgs84.latlon(latitude_degrees=lat, longitude_degrees=lon)
+        observer = ephemeris["earth"] + wgs84.latlon(latitude_degrees=latitude, longitude_degrees=longitude)
         bodies = [
-            ("mercury", "Mercury / 水星"),
-            ("venus", "Venus / 金星"),
-            ("mars", "Mars / 火星"),
-            ("jupiter barycenter", "Jupiter / 木星"),
-            ("saturn barycenter", "Saturn / 土星"),
+            ("mercury", "Mercury / 水星", "planet"),
+            ("venus", "Venus / 金星", "planet"),
+            ("mars", "Mars / 火星", "planet"),
+            ("jupiter barycenter", "Jupiter / 木星", "planet"),
+            ("saturn barycenter", "Saturn / 土星", "planet"),
         ]
+        if include_luminaries:
+            bodies += [("sun", "Sun / 太阳", "sun"), ("moon", "Moon / 月亮", "moon")]
         results = []
-        for key, label in bodies:
+        for key, label, category in bodies:
             apparent = observer.at(skyfield_time).observe(ephemeris[key]).apparent()
             altitude, azimuth, distance = apparent.altaz()
             results.append(
                 {
                     "name": label,
+                    "category": category,
                     "azimuth_deg": round(float(azimuth.degrees), 2),
                     "altitude_deg": round(float(altitude.degrees), 2),
                     "distance_au": round(float(distance.au), 4),
                 }
             )
         return results
-    except Exception:
-        return []
+    except EphemerisRangeError as exc:
+        logger.warning("Requested time is outside DE421 coverage: %s", moment)
+        raise ValueError("time_utc is outside the DE421 ephemeris date range") from exc
+    except Exception as exc:
+        logger.exception("Solar-system calculation failed for %s", moment)
+        raise SolarSystemUnavailableError("Solar-system calculation unavailable") from exc
 
 
 def _chart_position(azimuth_deg: float, altitude_deg: float) -> Dict[str, float]:
@@ -518,16 +559,16 @@ def build_sky_chart(
     solar_objects: List[Dict[str, Any]] = []
     if include_planets:
         planet_candidates = [
-            item for item in planet_positions(latitude, longitude, moment) if float(item["altitude_deg"]) >= 0.0
+            item for item in solar_system_positions(latitude, longitude, moment) if float(item["altitude_deg"]) >= 0.0
         ]
         planet_candidates.sort(key=lambda item: (-float(item["altitude_deg"]), item["name"]))
         for planet in planet_candidates:
             solar_objects.append(
                 _as_chart_object(
                     planet,
-                    category="planet",
+                    category=planet.get("category", "planet"),
                     label_priority=_planet_label_priority(planet),
-                    selection_reason="solar_system_planet_above_horizon",
+                    selection_reason="solar_system_object_above_horizon",
                 )
             )
 
@@ -593,7 +634,9 @@ def build_answer_facts(
             limit=star_limit,
             db_path=db_path,
         ),
-        "visible_planets": planet_positions(latitude, longitude, moment) if include_planets else [],
+        "visible_planets": [
+            item for item in planet_positions(latitude, longitude, moment) if item["altitude_deg"] >= 0.0
+        ] if include_planets else [],
     }
 
 

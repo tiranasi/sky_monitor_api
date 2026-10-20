@@ -9,7 +9,10 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, model_validator
 
-from app.astronomy import MAX_CHART_OBJECTS, build_answer_facts, build_sky_chart, build_spoken_answer
+from app.astronomy import (
+    MAX_CHART_OBJECTS, SolarSystemUnavailableError,
+    build_answer_facts, build_sky_chart, build_spoken_answer,
+)
 from app.catalog_query import get_bright_stars, get_catalog_stats, get_star_by_name
 from app.db import database_exists
 from app.reasoning_corpus import load_reasoning_corpus
@@ -297,7 +300,7 @@ def wiki(request: Request) -> HTMLResponse:
 def sky_chart(payload: SkyChartRequest) -> Dict[str, Any]:
     try:
         return {"sky_chart": _build_chart(payload)}
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, SolarSystemUnavailableError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -337,7 +340,7 @@ def sky_chart_get(
     )
     try:
         return {"sky_chart": _build_chart(payload)}
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, SolarSystemUnavailableError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -347,7 +350,7 @@ def sky_chart_get(
 def sky_facts(payload: SkyFactsRequest) -> Dict[str, Any]:
     try:
         return {"answer_facts": _build_facts(payload)}
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, SolarSystemUnavailableError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -380,7 +383,7 @@ def sky_facts_get(
     )
     try:
         return {"answer_facts": _build_facts(payload)}
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, SolarSystemUnavailableError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -390,7 +393,7 @@ def sky_facts_get(
 def sky_ask(payload: SkyAskRequest) -> Dict[str, Any]:
     try:
         answer_facts = _build_facts(payload)
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, SolarSystemUnavailableError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -405,7 +408,7 @@ def sky_ask(payload: SkyAskRequest) -> Dict[str, Any]:
 def catalog_stats() -> Dict[str, Any]:
     try:
         return get_catalog_stats()
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, SolarSystemUnavailableError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
@@ -418,7 +421,7 @@ def reasoning_corpus() -> Dict[str, Any]:
 def bright_stars(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     try:
         stars = get_bright_stars(limit=limit)
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, SolarSystemUnavailableError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {
         "count": len(stars),
@@ -430,7 +433,7 @@ def bright_stars(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]
 def star_search(name: str = Query(..., min_length=1)) -> Dict[str, Any]:
     try:
         star = get_star_by_name(name)
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, SolarSystemUnavailableError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     if star is None:
         raise HTTPException(status_code=404, detail=f"Star not found: {name}")

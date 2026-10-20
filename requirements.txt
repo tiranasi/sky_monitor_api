@@ -13,3 +13,4 @@ pandas; python_version >= "3.9"
 requests
 pytest>=7,<9; python_version < "3.9"
 pytest; python_version >= "3.9"
+httpx>=0.24,<1

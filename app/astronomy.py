@@ -21,6 +21,7 @@ DateTimeLike = Union[datetime, str]
 PathLike = Union[str, Path]
 _SKYFIELD_EPHEMERIS = None
 _SKYFIELD_TIMESCALE = None
+MAX_CHART_OBJECTS = 150
 
 
 def _prepare_astropy_runtime() -> None:
@@ -270,8 +271,9 @@ def visible_stars(
             }
         )
 
-    visible.sort(key=lambda item: (-item["altitude_deg"], item["magnitude"]))
-    return visible[: max(1, min(int(limit), 20))]
+    # Select from the complete magnitude-filtered sky, not only the zenith.
+    visible.sort(key=lambda item: (item["magnitude"], -item["altitude_deg"], item["name_en"]))
+    return visible[: max(1, min(int(limit), MAX_CHART_OBJECTS))]
 
 
 def visible_deep_sky_objects(
@@ -289,12 +291,13 @@ def visible_deep_sky_objects(
     visible: List[Dict[str, Any]] = []
 
     for item, (azimuth, altitude) in zip(candidates, altaz_values):
-        magnitude = float(item["magnitude"])
-        is_famous = int(item.get("importance", 3)) <= 2
+        magnitude = item.get("magnitude")
         if altitude < min_altitude_deg:
             continue
-        if magnitude > max_mag and not is_famous:
+        # An unknown magnitude cannot satisfy a numerical magnitude cutoff.
+        if magnitude is None or not math.isfinite(float(magnitude)) or float(magnitude) > max_mag:
             continue
+        magnitude = float(magnitude)
 
         visible.append(
             {
@@ -313,7 +316,7 @@ def visible_deep_sky_objects(
         )
 
     visible.sort(key=lambda item: (item["importance"], item["magnitude"], -item["altitude_deg"]))
-    return visible[: max(1, min(int(limit), 30))]
+    return visible[: max(1, min(int(limit), MAX_CHART_OBJECTS))]
 
 
 def planet_positions(
@@ -431,6 +434,31 @@ def _as_chart_object(
     return chart_object
 
 
+def _select_chart_objects(
+    stars: List[Dict[str, Any]],
+    deep_sky: List[Dict[str, Any]],
+    solar_system: List[Dict[str, Any]],
+    limit: int,
+) -> List[Dict[str, Any]]:
+    """Reserve solar-system targets, then share and backfill the remaining budget.
+
+    The internal 2:1 star/DSO budget is a starting point for a mixed-mode snapshot,
+    not a catalogue limit. Sparse categories never strand unused slots.
+    """
+    selected = solar_system[:limit]
+    remaining = limit - len(selected)
+    star_budget = (remaining * 2 + 2) // 3
+    deep_budget = remaining - star_budget
+    chosen_stars = stars[:star_budget]
+    chosen_deep = deep_sky[:deep_budget]
+    spare = remaining - len(chosen_stars) - len(chosen_deep)
+    extra_stars = stars[len(chosen_stars):len(chosen_stars) + spare]
+    chosen_stars += extra_stars
+    spare -= len(extra_stars)
+    chosen_deep += deep_sky[len(chosen_deep):len(chosen_deep) + spare]
+    return selected + chosen_stars + chosen_deep
+
+
 def build_sky_chart(
     lat: float,
     lon: float,
@@ -445,7 +473,7 @@ def build_sky_chart(
 ) -> Dict[str, Any]:
     latitude, longitude = validate_location(lat, lon)
     moment = ensure_utc(observed_at)
-    limit = max(8, min(int(total_limit), 60))
+    limit = max(8, min(int(total_limit), MAX_CHART_OBJECTS))
 
     star_candidates = visible_stars(
         lat=latitude,
@@ -453,22 +481,21 @@ def build_sky_chart(
         observed_at=moment,
         max_mag=star_max_mag,
         min_altitude_deg=min_altitude_deg,
-        limit=20,
+        limit=limit,
         db_path=db_path,
     )
-    star_candidates.sort(key=lambda item: (_star_label_priority(item), -item["altitude_deg"]))
-
-    chart_objects: List[Dict[str, Any]] = []
-    for star in star_candidates[: min(14, limit)]:
-        chart_objects.append(
+    star_objects: List[Dict[str, Any]] = []
+    for star in star_candidates:
+        star_objects.append(
             _as_chart_object(
                 star,
                 category="star",
                 label_priority=_star_label_priority(star),
-                selection_reason="bright_star_mag_lte_3_alt_gte_15",
+                selection_reason="star_within_magnitude_and_altitude_limits",
             )
         )
 
+    deep_objects: List[Dict[str, Any]] = []
     if include_deep_sky:
         deep_sky_candidates = visible_deep_sky_objects(
             lat=latitude,
@@ -476,25 +503,26 @@ def build_sky_chart(
             observed_at=moment,
             max_mag=deep_sky_max_mag,
             min_altitude_deg=min_altitude_deg,
-            limit=24,
+            limit=limit,
         )
-        for item in deep_sky_candidates[:12]:
-            chart_objects.append(
+        for item in deep_sky_candidates:
+            deep_objects.append(
                 _as_chart_object(
                     item,
                     category="deep_sky",
                     label_priority=_deep_sky_label_priority(item),
-                    selection_reason="famous_deep_sky_or_cluster_alt_gte_15",
+                    selection_reason="deep_sky_within_magnitude_and_altitude_limits",
                 )
             )
 
+    solar_objects: List[Dict[str, Any]] = []
     if include_planets:
         planet_candidates = [
             item for item in planet_positions(latitude, longitude, moment) if float(item["altitude_deg"]) >= 0.0
         ]
         planet_candidates.sort(key=lambda item: (-float(item["altitude_deg"]), item["name"]))
-        for planet in planet_candidates[:5]:
-            chart_objects.append(
+        for planet in planet_candidates:
+            solar_objects.append(
                 _as_chart_object(
                     planet,
                     category="planet",
@@ -503,8 +531,9 @@ def build_sky_chart(
                 )
             )
 
+    chart_objects = _select_chart_objects(star_objects, deep_objects, solar_objects, limit)
+    # Label ordering must not decide which stars survive the data budget.
     chart_objects.sort(key=lambda item: (item["label_priority"], -item["altitude_deg"], item["display_name"]))
-    chart_objects = chart_objects[:limit]
 
     counts: Dict[str, int] = {}
     for item in chart_objects:

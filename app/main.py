@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, model_validator
 
-from app.astronomy import build_answer_facts, build_sky_chart, build_spoken_answer
+from app.astronomy import MAX_CHART_OBJECTS, build_answer_facts, build_sky_chart, build_spoken_answer
 from app.catalog_query import get_bright_stars, get_catalog_stats, get_star_by_name
 from app.db import database_exists
 from app.reasoning_corpus import load_reasoning_corpus
@@ -75,7 +75,7 @@ class SkyChartRequest(CoordinateRequest):
     star_max_mag: float = Field(default=3.0, le=6.0)
     deep_sky_max_mag: float = Field(default=9.0, ge=0.0, le=12.0)
     min_altitude_deg: float = Field(default=15.0, ge=0.0, le=90.0)
-    total_limit: int = Field(default=28, ge=8, le=60)
+    total_limit: int = Field(default=28, ge=8, le=MAX_CHART_OBJECTS)
     include_planets: bool = True
     include_deep_sky: bool = True
 
@@ -253,7 +253,7 @@ def wiki(request: Request) -> HTMLResponse:
       <tr><td><code>min_altitude_deg</code></td><td>否</td><td>恒星和深空天体最低高度角，默认 15。</td></tr>
       <tr><td><code>max_magnitude</code></td><td>否</td><td>恒星亮度阈值，默认 3。也兼容 <code>star_max_mag</code>。</td></tr>
       <tr><td><code>deep_sky_max_mag</code></td><td>否</td><td>深空天体亮度阈值，默认 9，知名星团星云星系会放宽。</td></tr>
-      <tr><td><code>total_limit</code></td><td>否</td><td>返回目标数量，默认 28，范围 8 到 60。</td></tr>
+      <tr><td><code>total_limit</code></td><td>否</td><td>返回目标数量，默认 28，范围 8 到 150。</td></tr>
     </tbody>
   </table>
 
@@ -310,10 +310,11 @@ def sky_chart_get(
     latitude: Optional[float] = Query(default=None, ge=-90.0, le=90.0),
     longitude: Optional[float] = Query(default=None, ge=-180.0, le=180.0),
     time_utc: Optional[datetime] = None,
-    star_max_mag: float = Query(default=3.0, le=6.0),
+    star_max_mag: Optional[float] = Query(default=None, le=6.0, description="Default: 3.0"),
+    max_magnitude: Optional[float] = Query(default=None, le=6.0),
     deep_sky_max_mag: float = Query(default=9.0, ge=0.0, le=12.0),
     min_altitude_deg: float = Query(default=15.0, ge=0.0, le=90.0),
-    total_limit: int = Query(default=28, ge=8, le=60),
+    total_limit: int = Query(default=28, ge=8, le=MAX_CHART_OBJECTS),
     include_planets: bool = True,
     include_deep_sky: bool = True,
 ) -> Dict[str, Any]:
@@ -325,7 +326,9 @@ def sky_chart_get(
         lat=resolved_lat,
         lon=resolved_lon,
         time_utc=time_utc,
-        star_max_mag=star_max_mag,
+        star_max_mag=star_max_mag if star_max_mag is not None else (
+            max_magnitude if max_magnitude is not None else 3.0
+        ),
         deep_sky_max_mag=deep_sky_max_mag,
         min_altitude_deg=min_altitude_deg,
         total_limit=total_limit,

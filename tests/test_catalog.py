@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.catalog_query import get_bright_stars
 from scripts.build_catalog_db import build_database
+import pytest
 
 
 SAMPLE_CSV = """id,hip,hd,hr,proper,ra,dec,dist,mag,spect,ci,bayer,flam,con
@@ -65,3 +66,22 @@ def test_get_bright_stars_returns_limited_sorted_rows(tmp_path: Path) -> None:
     assert len(rows) <= 10
     assert magnitudes == sorted(magnitudes)
     assert rows[0]["name_en"] == "Sirius"
+
+
+@pytest.mark.parametrize("distance", ["100000", "100001", "0", "-1", "nan", "inf"])
+def test_unknown_distance_does_not_remove_valid_star(tmp_path, distance):
+    source = tmp_path / "hyg.csv"
+    source.write_text("id,proper,ra,dec,dist,mag\n1,Test,1,2," + distance + ",3\n", encoding="utf-8")
+    database = tmp_path / "catalog.db"
+    build_database(csv_path=source, db_path=database)
+    rows = get_bright_stars(db_path=database)
+    assert len(rows) == 1
+    assert rows[0]["distance_pc"] is rows[0]["distance_ly"] is None
+
+
+def test_nonfinite_required_values_are_not_imported(tmp_path):
+    source = tmp_path / "hyg.csv"
+    source.write_text("id,ra,dec,mag\n1,1,2,nan\n2,inf,2,3\n3,1,nan,3\n", encoding="utf-8")
+    database = tmp_path / "catalog.db"
+    stats = build_database(csv_path=source, db_path=database)
+    assert stats.imported_rows == 0

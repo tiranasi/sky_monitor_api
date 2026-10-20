@@ -181,6 +181,7 @@ def altaz_from_radec(
         altaz = coordinate.transform_to(AltAz(obstime=Time(moment), location=location))
         return float(altaz.az.degree) % 360.0, float(altaz.alt.degree)
     except Exception:
+        logger.warning("Astropy coordinate conversion failed; using approximate GMST conversion", exc_info=True)
         return _altaz_fallback(ra_deg, dec_deg, lat, lon, moment)
 
 
@@ -206,6 +207,7 @@ def _bulk_altaz_from_stars(
             for azimuth, altitude in zip(altaz.az.degree, altaz.alt.degree)
         ]
     except Exception:
+        logger.warning("Astropy batch conversion failed; using approximate GMST conversion", exc_info=True)
         return [
             _altaz_fallback(
                 ra_deg=float(star["ra_deg"]),
@@ -256,7 +258,7 @@ def visible_stars(
 
     for star, (azimuth, altitude) in zip(candidates, altaz_values):
         magnitude = float(star["magnitude"])
-        if altitude <= min_altitude_deg or magnitude > max_mag:
+        if altitude < min_altitude_deg or magnitude > max_mag:
             continue
 
         visible.append(
@@ -393,7 +395,7 @@ def _solar_system_positions(
                     "category": category,
                     "azimuth_deg": round(float(azimuth.degrees), 2),
                     "altitude_deg": round(float(altitude.degrees), 2),
-                    "distance_au": round(float(distance.au), 4),
+                    "distance_au": round(float(distance.au), 8 if category == "moon" else 4),
                 }
             )
         return results
@@ -515,6 +517,8 @@ def build_sky_chart(
     latitude, longitude = validate_location(lat, lon)
     moment = ensure_utc(observed_at)
     limit = max(8, min(int(total_limit), MAX_CHART_OBJECTS))
+    # Fail unsupported solar-system dates before expensive stellar transforms.
+    solar_candidates = solar_system_positions(latitude, longitude, moment) if include_planets else []
 
     star_candidates = visible_stars(
         lat=latitude,
@@ -559,7 +563,7 @@ def build_sky_chart(
     solar_objects: List[Dict[str, Any]] = []
     if include_planets:
         planet_candidates = [
-            item for item in solar_system_positions(latitude, longitude, moment) if float(item["altitude_deg"]) >= 0.0
+            item for item in solar_candidates if float(item["altitude_deg"]) >= 0.0
         ]
         planet_candidates.sort(key=lambda item: (-float(item["altitude_deg"]), item["name"]))
         for planet in planet_candidates:
@@ -644,7 +648,7 @@ def build_spoken_answer(answer_facts: Dict[str, Any]) -> str:
     stars = answer_facts.get("visible_stars", [])
     moon = answer_facts.get("moon_phase", {})
     if not stars:
-        return f"现在月相是{moon.get('phase', '未知')}。当前条件下没有筛选到高度超过十度的肉眼可见亮星。"
+        return f"现在月相是{moon.get('phase', '未知')}。当前条件下没有筛选到满足亮度与高度条件的恒星。"
 
     selected = stars[:5]
     star_phrases = []

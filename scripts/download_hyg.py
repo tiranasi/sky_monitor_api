@@ -12,15 +12,19 @@ from typing import List, Optional
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = PROJECT_ROOT / "data" / "raw" / "hygdata_v3.csv"
 DEFAULT_URLS = [
+    "https://raw.githubusercontent.com/astronexus/HYG-Database/main/hyg/CURRENT/hygdata_v41.csv",
+    "https://raw.githubusercontent.com/astronexus/HYG-Database/main/hyg/CURRENT/hygdata_v40.csv.gz",
     "https://raw.githubusercontent.com/astronexus/HYG-Database/master/hygdata_v3.csv",
     "https://raw.github.com/astronexus/HYG-Database/master/hygdata_v3.csv",
     "https://www.astronexus.com/downloads/catalogs/hygdata_v3.csv.gz",
-    "https://raw.githubusercontent.com/astronexus/HYG-Database/main/hyg/CURRENT/hygdata_v41.csv",
 ]
 
 
 def _looks_like_hyg_csv(content: bytes) -> bool:
-    first_line = content[:4096].decode("utf-8", errors="ignore").splitlines()[0].lower()
+    lines = content[:4096].decode("utf-8", errors="ignore").splitlines()
+    if not lines:
+        return False
+    first_line = lines[0].lower()
     required = {"ra", "dec", "mag"}
     columns = {item.strip().strip('"') for item in first_line.split(",")}
     return required.issubset(columns)

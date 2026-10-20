@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -41,6 +39,7 @@ def test_suzhou_sun_moon_and_saturn_positions(ephemeris):
     assert by_category["sun"]["altitude_deg"] == pytest.approx(-34.67, abs=.02)
     assert by_category["moon"]["azimuth_deg"] == pytest.approx(192.16, abs=.02)
     assert by_category["moon"]["altitude_deg"] == pytest.approx(40.58, abs=.02)
+    assert by_category["moon"]["distance_au"] == pytest.approx(.00262450, abs=.00000001)
     saturn = next(item for item in rows if "Saturn" in item["name"])
     assert saturn["altitude_deg"] == pytest.approx(41.34, abs=.02)
     planets = sky.planet_positions(31.2989, 120.5853, "2026-10-20T12:00:00Z")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -120,7 +121,7 @@ def _float_or_none(value: Any) -> Optional[float]:
         parsed = float(cleaned)
     except ValueError:
         return None
-    return parsed
+    return parsed if math.isfinite(parsed) else None
 
 
 def _int_or_none(value: Any) -> Optional[int]:
@@ -182,7 +183,8 @@ def normalize_row(
         return None
 
     distance_pc = _float_or_none(row.get("dist"))
-    if distance_pc is not None and distance_pc <= 0:
+    # HYG uses >=100000 pc for missing/unreliable parallax, not a real distance.
+    if distance_pc is not None and (distance_pc <= 0 or distance_pc >= 100000):
         distance_pc = None
     distance_ly = distance_pc * 3.26156 if distance_pc is not None else None
     name_en = _name_from_row(row)

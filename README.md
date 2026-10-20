@@ -14,8 +14,8 @@ Sky Monitor API 是一个面向位置感知观星助手的 FastAPI 后端。它�
 - 基于 GPS 坐标计算地平坐标系下的高度角和方位角。
 - 默认筛选高度角大于等于 15 度、亮度适合展示的目标。
 - 恒星星表来自 HYG Database，可构建本地 SQLite 星表。
-- 行星位置通过 Skyfield + JPL DE421 星历计算。
-- 内置常见 Messier/NGC 深空天体清单，包含星团、星云、星系。
+- 五颗常见行星、太阳和月亮的位置通过 Skyfield + JPL DE421 星历计算。
+- 内置完整 M1～M110 及四个额外深空目标，包含星团、星云、星系等真实类型。
 - `/sky/chart` 返回 `chart_x`、`chart_y`、`chart_radius`，方便前端直接绘制极坐标星图。
 - `reasoning_context` 提供中文推理语料、观测建议和目标解释，便于 LLM 工具调用。
 - 静态 Wiki 包含星空风格交互演示，支持城市解析、文件上传、星图缩放、旋转、拖拽和时间前进/后退。
@@ -89,7 +89,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 数据来源：
 
 - HYG Database: 恒星基础星表。
-- JPL DE421: 太阳系行星星历。
+- JPL DE421: 行星、太阳和月亮星历。
+- OpenNGC：离线梅西耶目录，来源和许可见 `data/DEEP_SKY_SOURCES.md`。
 - GeoNames cities1000: Wiki 城市名称到坐标的浏览器侧索引。
 
 ## 环境变量
@@ -127,7 +128,7 @@ curl "https://sky.eunoia.top/health"
 ```json
 {
   "status": "ok",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "catalog_db_exists": true
 }
 ```
@@ -210,6 +211,10 @@ curl -X POST "https://sky.eunoia.top/sky/chart" \
 深空目录包含完整 M1～M110，以及原有四个非梅西耶目标，共 114 项。
 目录完整不代表一次返回全部目标，响应仍受星等、高度与数量条件限制。
 数据来源、许可、特殊编号处理和重建方法见 [目录来源说明](data/DEEP_SKY_SOURCES.md)。
+
+升级已有部署时，需使用修复后的导入器重新构建 `catalog.db`，以清除旧库中由 HYG
+未知距离占位值换算出的错误距离。`dist >= 100000` 秒差距现在记为未知，不影响该恒星的位置。
+生成数据库和星历文件仍不提交 Git；深空小目录及其许可随源码提交。
 
 ### 获取推理语料
 
@@ -302,6 +307,12 @@ sudo systemctl reload nginx
 - 将 FastAPI 绑定在 `127.0.0.1:8000`，由 Nginx 反向代理。
 
 ## 测试
+
+无外网访问的基础测试直接运行 `pytest`。完整位置和接口集成测试需要本地已构建的
+`data/catalog.db` 与 `data/de421.bsp`；缺少这些文件时，对应集成测试会明确跳过。
+下载固定版本的 OpenNGC 原始文件后，还会校验目录重建结果一致。
+集成测试覆盖苏州昼夜、伦敦冬季和悉尼冬季，检查 GET/POST 一致、150 数量预算、
+明亮恒星保留、太阳/月亮位置与原响应字段兼容。
 
 ```bash
 pytest -q

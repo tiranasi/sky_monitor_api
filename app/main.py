@@ -22,7 +22,7 @@ PUBLIC_BASE_URL = os.getenv("SKY_PUBLIC_BASE_URL", "https://sky.eunoia.top").rst
 
 app = FastAPI(
     title="Rokid Sky Assistant",
-    version="0.3.1",
+    version="0.4.0",
     description="Local astronomy catalog backend for GPS-based sky charts, facts, and voice Q&A.",
     servers=[
         {
@@ -255,7 +255,7 @@ def wiki(request: Request) -> HTMLResponse:
       <tr><td><code>time_utc</code></td><td>否</td><td>UTC 时间，例如 <code>2026-05-16T03:15:00Z</code>。不传则使用当前时间。</td></tr>
       <tr><td><code>min_altitude_deg</code></td><td>否</td><td>恒星和深空天体最低高度角，默认 15。</td></tr>
       <tr><td><code>max_magnitude</code></td><td>否</td><td>恒星亮度阈值，默认 3。也兼容 <code>star_max_mag</code>。</td></tr>
-      <tr><td><code>deep_sky_max_mag</code></td><td>否</td><td>深空天体亮度阈值，默认 9，知名星团星云星系会放宽。</td></tr>
+      <tr><td><code>deep_sky_max_mag</code></td><td>否</td><td>深空天体亮度阈值，默认 9，严格按可见光星等筛选。</td></tr>
       <tr><td><code>total_limit</code></td><td>否</td><td>返回目标数量，默认 28，范围 8 到 150。</td></tr>
     </tbody>
   </table>
